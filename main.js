@@ -146,7 +146,7 @@ function computeRowForDB(row) {
             };
             output.type.attributes.push(radio);
         }
-    } else if (row[2].value == "checkbox"){
+    } else if (row[2].value == "checkbox") {
         output.type = {
             type: "checkbox",
             value: row[1].value,
@@ -160,8 +160,8 @@ function computeRowForDB(row) {
 }
 
 var db;
-var DB_NAME;
-var DB_STORE_NAME = "fields";
+const DB_NAME = "db1";
+const DB_STORE_NAME = "fields";
 
 function openDB() {
     console.log("openDB..");
@@ -178,13 +178,9 @@ function openDB() {
 
     req.onupgradeneeded = function (event) {
         console.log("openDB.onupgradeneeded");
-
-            var store = event.currentTarget.result.createObjectStore(
-                DB_STORE_NAME, {keyPath: 'id', autoIncrement: true});
-
-            store.createIndex("label", "label", {unique: false});
-            store.createIndex("type", "type", {unique: false});
-            store.createIndex("check", "check", {unique: false});
+        var store = event.currentTarget.result.createObjectStore(
+            DB_STORE_NAME, {keyPath: 'formName'});
+        store.createIndex("formElements", "formElements", {unique: false});
     }
 }
 
@@ -194,307 +190,257 @@ function getObjectStore(store_name, mode) {
     return tx.objectStore(store_name);
 }
 
-function clearObjectStore(store_name) {
-    var store = getObjectStore(DB_STORE_NAME, "readwrite");
-    var req = store.clear();
-    req.onsuccess = function (event) {
-        //console.log("store cleared");
-    };
-    req.onerror = function (event) {
-        console.error("clearObjectStore:", event.target.errorCode);
-    };
-}
-
-function addFields(row) {
+function addFields(dbObject) {
     //console.log("addFields arguments:", arguments);
     var store = getObjectStore(DB_STORE_NAME, "readwrite");
     var req;
-    try {
-        req = store.add(row);
-    } catch (e) {
-        throw e;
-    }
+    req = store.get(dbObject.formName);
     req.onsuccess = function (event) {
-        console.log("Insertion in DB successful");
+        var requestUpdate = store.put(dbObject);
+        requestUpdate.onerror = function (event) {
+            console.error("addFields, failed to update data");
+        };
+        requestUpdate.onsuccess = function (event) {
+            console.log("Success - the data is updated!");
+        }
     };
-    req.onerror = function () {
-        console.error("addFIelds error", this.error);
+    req.onerror = function (event) {
+        req = store.add(dbObject);
+        req.onsuccess = function (event) {
+            console.log("Insertion in DB successful");
+        };
+        req.onerror = function () {
+            console.error("addFIelds error", this.error);
+        };
     };
 }
 
-function displayForms(ver) {
+function displayForms(name, ver) {
     console.log("displayForms");
     store = getObjectStore(DB_STORE_NAME, "readonly");
 
     var req;
-    try {
-        req = store.openCursor();
-        showForms();
-    } catch (e){
-        console.log("Error with store.openCursor()", e);
-    }
-    
+    req = store.get(name);
     req.onsuccess = function (event) {
-        var cursor = event.target.result;
-        if (cursor){
-            //console.log("displayForms cursor:", cursor);
-            req = store.get(cursor.key);
-            req.onsuccess = function (event) {
-                var value = event.target.result;
-
-                var div = elt("div");
-                var label = document.createTextNode(value.label);
-                div.appendChild(label);
-                var index = value.type.version.indexOf(ver);
-                if (value.type.type == "radio"){
-
-                    var radios;
-                    if (index > -1)
-                        radios = value.type.values[index];
-                    else
-                        radios = value.type.attributes;
-
-                    div.innerHTML += "<br>";
-                    radios.forEach(function (radio) {
-                        var input = elt("input", {
-                            type: "radio",
-                            name: radio.name,
-                            value: radio.value,
-                            class: "fields",
-                        });
-                        if (radio.checked)
-                            input.setAttribute("checked", true);
-                        if (value.check != "none")
-                            input.className += " " + value.check;
-
-                        var context = document.createTextNode(radio.value);
-                        div.appendChild(input);
-                        div.appendChild(context);
-                        div.innerHTML += "<br>"
-                    });
-
-
-                } else {
-                    var input = elt("input", {type: value.type.type, class: "fields", name: value.type.name});
-                    if (index > -1){
-                        if (input.type == "text")
-                        input.value = value.type.values[index];
-                        if (input.type == "checkbox") {
-                            input.checked = value.type.checked[index];
-                            input.value = value.type.value;
-                        }
-                    }
-                    input.name = value.type.name;
-                    if (value.check != "none")
-                        input.className += " " + value.check;
-                    div.appendChild(input);
-                }
-                document.body.appendChild(div);
-
-            };
-            cursor.continue();
-        } else {
-            document.body.appendChild(save);
-        }
-    }
-}
-
-function saveForms(rows, ver) {
-
-    console.log("saveForms..");
-    store = getObjectStore(DB_STORE_NAME, "readwrite");
-
-    var req;
-    try {
-        req = store.openCursor();
-    } catch (e){
-        console.log("Error with store.openCursor()", e);
-    }
-    var j = -1;
-    req.onsuccess = function (event) {
-        var cursor = event.target.result;
-        if (cursor){
-            //console.log("saveForms cursor:", cursor);
-            req = store.get(cursor.key);
-            req.onsuccess = function (event) {
-                var value = event.target.result;
-                var index = value.type.version.indexOf(ver);
-                var row = rows[j];
-                if (index > -1){
-                    if(value.type.type == "text")
-                        value.type.values[index] = row.value;
-                    if (value.type.type == "checkbox")
-                        value.type.checked[index] = row.checked;
-                    if (value.type.type == "radio")
-                        value.type.values[index] = row;
-                } else {
-                    if(value.type.type == "text") {
-                        value.type.values.push(row.value);
-                        value.type.version.push(ver);
-                    }
-                    if (value.type.type == "checkbox") {
-                        value.type.checked.push(row.checked);
-                        value.type.version.push(ver);
-                    }
-                    if (value.type.type == "radio") {
-                        value.type.values.push(row);
-                        value.type.version.push(ver);
-                    }
-                }
-
-                var requestUpdate = store.put(value);
-                requestUpdate.onerror = function (event) {
-                    console.log("Failed to update");
-                };
-                requestUpdate.onsuccess = function (event) {
-                    console.log("Data updated");
-                };
-            };
-            cursor.continue();
-            j++;
-        } else {
-            console.log("DB updated");
-        }
-    }
-}
-
-function displayFileds(store) {
-    console.log("displayFields..");
-    store = getObjectStore(DB_STORE_NAME, "readonly");
-    var count = 0;
-    
-    var req;
-    try {
-        req = store.count();
-    } catch (e){
-        throw e;
-    }
-    req.onsuccess = function (event) {
-        count = event.target.result;
-        if (count > 0) {
-            rows = [];
+        try {
             div.innerHTML = "";
-            var j = 0;
-            req = store.openCursor();
-            req.onsuccess = function (event) {
-                var cursor = event.target.result;
-
-                if (cursor) {
-                    //console.log("Display cursor: ", cursor);
-                    req = store.get(cursor.key);
-                    req.onsuccess = function (event) {
-                        var value = event.target.result;
-                        var row = generateRowFromDB(value, j);
-                        rows.push(row);
-                        showRow(div, row);
-                        j++;
-                    };
-                    cursor.continue();
-                } else {
-                    j--;
-                    i = j;
-                        div.appendChild(save);
-                    console.log("no more enteries");
-                }
-            };
+            var values = event.target.result.formElements;
+            values.forEach(function (value) {
+                appendDataToHTML(value, ver);
+            });
+            document.body.appendChild(save);
+        } catch (e) {
+            console.log("displayForms error", e);
         }
     };
     req.onerror = function (event) {
-        console.log("getFieldsNum error", this.error);
+        console.log("displayForms error", this.error);
     };
 }
 
+function saveForms(rows, name, ver) {
+    console.log("saveForms..");
+    store = getObjectStore(DB_STORE_NAME, "readwrite");
+    var req;
+    req = store.get(name);
+    req.onsuccess = function (event) {
+        var values = event.target.result.formElements;
+        values.forEach(function (value, j) {
+            var index = value.type.version.indexOf(ver);
+            var row = rows[j];
+            if (index > -1) {
+                if (value.type.type == "text")
+                    value.type.values[index] = row.value;
+                if (value.type.type == "checkbox")
+                    value.type.checked[index] = row.checked;
+                if (value.type.type == "radio")
+                    value.type.values[index] = row;
+            } else {
+                if (value.type.type == "text") {
+                    value.type.values.push(row.value);
+                    value.type.version.push(ver);
+                }
+                if (value.type.type == "checkbox") {
+                    value.type.checked.push(row.checked);
+                    value.type.version.push(ver);
+                }
+                if (value.type.type == "radio") {
+                    value.type.values.push(row);
+                    value.type.version.push(ver);
+                }
+            }
+        });
+        var dbData = event.target.result;
+        dbData.formElements = values;
+        var requestUpdate = store.put(dbData);
+        requestUpdate.onerror = function (event) {
+            console.log("Failed to update");
+        };
+        requestUpdate.onsuccess = function (event) {
+            console.log("Data updated");
+        };
+    };
+}
+
+function displayFileds(name) {
+    console.log("displayFields..");
+    store = getObjectStore(DB_STORE_NAME, "readonly");
+    var req;
+    req = store.get(name);
+    req.onsuccess = function (event) {
+        rows = [];
+        div.innerHTML = "";
+        var values = event.target.result.formElements;
+        values.forEach(function (value, j) {
+            var row = generateRowFromDB(value, j);
+            rows.push(row);
+            showRow(div, row);
+        });
+        div.appendChild(save);
+        i = values.length - 1;
+    };
+    req.onerror = function (event) {
+        console.log("displayFileds error", this.error);
+    };
+}
+
+openDB();
+
 function generateRowFromDB(value, i) {
-    var row;
-    row = generateRow(i, value.label, value.type, value.check);
-    return row;
+    return generateRow(i, value.label, value.type, value.check);
+}
+
+function appendDataToHTML(value, ver) {
+    var label = document.createTextNode(value.label);
+    div.appendChild(label);
+    var index = value.type.version.indexOf(ver);
+    if (value.type.type == "radio") {
+        var radios;
+        if (index > -1)
+            radios = value.type.values[index];
+        else
+            radios = value.type.attributes;
+
+        div.innerHTML += "<br>";
+        radios.forEach(function (radio) {
+            var input = elt("input", {
+                type: "radio",
+                name: radio.name,
+                value: radio.value,
+                class: "fields"
+            });
+            if (radio.checked)
+                input.setAttribute("checked", true);
+            if (value.check != "none")
+                input.className += " " + value.check;
+
+            var context = document.createTextNode(radio.value);
+            div.appendChild(input);
+            div.appendChild(context);
+            div.innerHTML += "<br>"
+        });
+    } else {
+        var input = elt("input", {
+            type: value.type.type,
+            class: "fields",
+            name: value.type.name
+        });
+        if (index > -1) {
+            if (value.type.type == "text")
+                input.setAttribute("value", value.type.values[index]);
+            if (value.type.type == "checkbox") {
+                input.setAttribute("value", value.type.value);
+                if (value.type.checked[index])
+                    input.setAttribute("checked", true);
+            }
+        }
+        if (value.check != "none")
+            input.className += " " + value.check;
+        div.appendChild(input);
+        div.innerHTML += "<br>";
+    }
 }
 
 save.addEventListener("click", function (event) {
     if (formName.value) {
-
-            DB_NAME = formName.value;
-            openDB();
-
-        setTimeout(function () {
-
-            var admin = document.getElementById("admin");
-            var forms = document.getElementById("forms");
-            if (admin.disabled){
-                clearObjectStore();
-                for (var j = 0; j < rows.length; j++) {
-                    var row = computeRowForDB(rows[j]);
-                    addFields(row);
-                }
+        var admin = document.getElementById("admin");
+        var forms = document.getElementById("forms");
+        if (admin.disabled) {
+            var dbData = {};
+            dbData.formName = formName.value;
+            dbData.formElements = [];
+            for (var j = 0; j < rows.length; j++) {
+                var row = computeRowForDB(rows[j]);
+                dbData.formElements.push(row);
             }
-            if (forms.disabled){
-                if (version.value){
-                    rows = [];
-                    var fields = document.querySelectorAll(".fields");
-                    var radio = [];
-                    var status = true;
-                    fields.forEach(function (field, i) {
-                        if (field.type == "text"){
-                            if (field.className == "fields mandatory") {
-                                if (!field.value) {
-                                    alert(field.name + " can not be empty");
-                                    status = false;
-                                }
-                            } else if (field.className == "fields number") {
-                                if (isNaN(field.value)){
-                                    alert(field.name + " must be number");
-                                    status = false;
-                                }
-                            }
-                            rows.push({ value: field.value });
-                        } else if (field.type == "checkbox"){
-                            if (field.className == "fields mandatory") {
-                                if (!field.checked) {
-                                    alert(field.name + " must be checked");
-                                    status = false;
-                                }
-                            }
-                            rows.push({ checked: field.checked });
-                        } else if (field.type == "radio"){
-                            radio.push({
-                                name: field.name,
-                                value: field.value,
-                                checked: field.checked
-                            });
-                            if ( typeof fields[i+1] == "undefined" || (fields[i+1].type != "radio")  ){
-                                rows.push(radio);
-                                radio = [];
-                            }
-                        }
-                    });
-                    //console.log(rows);
-                    if (status)
-                        saveForms(rows, version.value);
-                } else
-                    alert("What version?");
-            }
-
-
-        }, 300);
+            addFields(dbData);
+        }
+        if (forms.disabled) {
+            if (version.value) {
+                var fields = checkInputData();
+                if (fields.length > 0)
+                    saveForms(fields, formName.value, version.value);
+            } else
+                alert("What version?");
+        }
     } else {
         alert("Can't save unnamed form");
     }
 });
 
+function checkInputData() {
+    var rows = [];
+    var status = true;
+    var fields = document.querySelectorAll(".fields");
+    var radio = [];
+    var status = true;
+    fields.forEach(function (field, i) {
+        if (field.type == "text") {
+            if (field.className == "fields mandatory") {
+                if (!field.value) {
+                    alert(field.name + " can not be empty");
+                    status = false;
+                }
+            } else if (field.className == "fields number") {
+                if (isNaN(field.value)) {
+                    alert(field.name + " must be number");
+                    status = false;
+                }
+            }
+            rows.push({value: field.value});
+        } else if (field.type == "checkbox") {
+            if (field.className == "fields mandatory") {
+                if (!field.checked) {
+                    alert(field.name + " must be checked");
+                    status = false;
+                }
+            }
+            rows.push({checked: field.checked});
+        } else if (field.type == "radio") {
+            radio.push({
+                name: field.name,
+                value: field.value,
+                checked: field.checked
+            });
+            if (typeof fields[i + 1] == "undefined" || (fields[i + 1].type != "radio")) {
+                rows.push(radio);
+                radio = [];
+            }
+        }
+    });
+    if (!status)
+        rows = [];
+    return rows;
+}
+
 search.addEventListener("click", function (event) {
-    if (formName.value){
-        DB_NAME = formName.value;
-        openDB();
-
-        setTimeout(function () {
-                var admin = document.getElementById("admin");
-                var forms = document.getElementById("forms");
-                if (admin.disabled)
-                    displayFileds();
-                if (forms.disabled)
-                    displayForms(version.value);
-
-        }, 300);
+    if (formName.value) {
+        var admin = document.getElementById("admin");
+        var forms = document.getElementById("forms");
+        if (admin.disabled)
+            displayFileds(formName.value);
+        if (forms.disabled)
+            displayForms(formName.value, version.value);
     } else {
         showAdmin();
     }
@@ -502,6 +448,7 @@ search.addEventListener("click", function (event) {
 
 function showAdmin() {
     i = 0;
+    rows = [];
     var admin = document.getElementById("admin");
     var forms = document.getElementById("forms");
     document.body.innerHTML = "";
@@ -524,21 +471,22 @@ function showAdmin() {
 function showForms() {
     var admin = document.getElementById("admin");
     var forms = document.getElementById("forms");
+    div.innerHTML = "";
     document.body.innerHTML = "";
 
-    var div = elt("div");
-    div.appendChild(admin);
-    div.appendChild(forms);
-    document.body.appendChild(div);
+    var div1 = elt("div");
+    div1.appendChild(admin);
+    div1.appendChild(forms);
+    document.body.appendChild(div1);
 
     admin.disabled = false;
     forms.disabled = true;
-    var div = elt("div");
-    div.appendChild(document.createTextNode("Form name: "));
-    div.appendChild(formName);
-    div.appendChild(document.createTextNode("Version: "));
-    div.appendChild(version);
-    div.appendChild(search);
+    var div1 = elt("div");
+    div1.appendChild(document.createTextNode("Form name: "));
+    div1.appendChild(formName);
+    div1.appendChild(document.createTextNode("Version: "));
+    div1.appendChild(version);
+    div1.appendChild(search);
+    document.body.appendChild(div1);
     document.body.appendChild(div);
 }
-
